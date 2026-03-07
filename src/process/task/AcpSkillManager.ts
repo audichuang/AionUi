@@ -153,7 +153,7 @@ export class AcpSkillManager {
       const entries = await fs.readdir(builtinDir, { withFileTypes: true });
 
       for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
+        if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
 
         const skillName = entry.name;
         const skillFile = path.join(builtinDir, skillName, 'SKILL.md');
@@ -212,7 +212,7 @@ export class AcpSkillManager {
       const entries = await fs.readdir(skillsDir, { withFileTypes: true });
 
       for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
+        if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
 
         const skillName = entry.name;
 
