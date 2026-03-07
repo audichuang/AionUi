@@ -241,6 +241,7 @@ const AssistantManagement: React.FC<AssistantManagementProps> = ({ message }) =>
     setEditDescription(assistant.description || '');
     setEditAvatar(assistant.avatar || '');
     setEditAgent(assistant.presetAgentType || 'gemini');
+    setPendingSkills([]); // 清空上次残留的待导入 skills / Clear stale pending skills
     setEditVisible(true);
 
     // 先加载规则、技能内容 / Load rules, skills content
@@ -283,6 +284,7 @@ const AssistantManagement: React.FC<AssistantManagementProps> = ({ message }) =>
     setEditSkills('');
     setSelectedSkills([]); // 没有启用的 skills
     setCustomSkills([]); // 没有通过 Add Skills 添加的 skills
+    setPendingSkills([]); // 清空上次残留的待导入 skills / Clear stale pending skills
     setPromptViewMode('edit'); // 创建助手时，规则默认处于编辑状态 / Default to edit mode when creating
     setEditVisible(true);
 
@@ -590,6 +592,7 @@ const AssistantManagement: React.FC<AssistantManagementProps> = ({ message }) =>
         autoFocus={false}
         onCancel={() => {
           setEditVisible(false);
+          setPendingSkills([]); // 关闭时清空待导入 skills / Clear pending skills on close
         }}
         headerStyle={{ background: 'var(--color-bg-1)' }}
         bodyStyle={{ background: 'var(--color-bg-1)' }}
