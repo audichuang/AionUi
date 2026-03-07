@@ -95,14 +95,14 @@ export class AcpConnection {
   private lastPromptSentAt: number = 0;
   private firstChunkReceived: boolean = true;
 
-  public onSessionUpdate: (data: AcpSessionUpdate) => void = () => {};
+  public onSessionUpdate: (data: AcpSessionUpdate) => void = () => { };
   public onPermissionRequest: (data: AcpPermissionRequest) => Promise<{
     optionId: string;
   }> = () => Promise.resolve({ optionId: 'allow' }); // Returns a resolved Promise for interface consistency
-  public onEndTurn: () => void = () => {}; // Handler for end_turn messages
-  public onFileOperation: (operation: { method: string; path: string; content?: string; sessionId: string }) => void = () => {};
+  public onEndTurn: () => void = () => { }; // Handler for end_turn messages
+  public onFileOperation: (operation: { method: string; path: string; content?: string; sessionId: string }) => void = () => { };
   // Disconnect callback - called when child process exits unexpectedly during runtime
-  public onDisconnect: (error: { code: number | null; signal: NodeJS.Signals | null }) => void = () => {};
+  public onDisconnect: (error: { code: number | null; signal: NodeJS.Signals | null }) => void = () => { };
 
   // Track if initial setup is complete (to distinguish startup errors from runtime exits)
   private isSetupComplete = false;
@@ -636,7 +636,7 @@ export class AcpConnection {
       // Attach .catch only now — prevents unhandled rejection if the process exits
       // after setup completed (or after another racer won).
       processExitReject = null;
-      processExitPromise.catch(() => {});
+      processExitPromise.catch(() => { });
     }
     if (ACP_PERF_LOG) console.log(`[ACP-PERF] connect: protocol initialized ${Date.now() - initStart}ms`);
 
@@ -1039,12 +1039,12 @@ export class AcpConnection {
     const useMetaResume = (this.backend === 'claude' || this.backend === 'codebuddy') && options?.resumeSessionId;
     const meta = useMetaResume
       ? {
-          claudeCode: {
-            options: {
-              resume: options.resumeSessionId,
-            },
+        claudeCode: {
+          options: {
+            resume: options.resumeSessionId,
           },
-        }
+        },
+      }
       : undefined;
 
     const response = await this.sendRequest<AcpResponse & { sessionId?: string }>('session/new', {
@@ -1077,6 +1077,54 @@ export class AcpConnection {
       const unifiedModelInfo = buildAcpModelInfo(this.configOptions, this.models);
       const modelOption = this.configOptions?.find((opt) => opt.category === 'model');
       mainLog('[ACP codex]', 'session/new parsed model info', {
+        rawCurrentModelId: this.models?.currentModelId || null,
+        rawAvailableModelCount: this.models?.availableModels?.length || 0,
+        configOptionModelCount: modelOption && modelOption.type === 'select' && modelOption.options ? modelOption.options.length : 0,
+        unified: summarizeAcpModelInfo(unifiedModelInfo),
+      });
+    }
+
+    return response;
+  }
+
+  /**
+   * Load/resume an existing session using the ACP session/load method.
+   * Used by Codex ACP bridge which implements `load_session()` to call
+   * `resume_thread_from_rollout` internally – restoring full conversation history.
+   * 使用 ACP session/load 方法加载/恢复现有会话。
+   * Codex ACP bridge 实现了 load_session()，内部调用 resume_thread_from_rollout 恢复完整对话历史。
+   *
+   * @param sessionId - The session ID to load/resume
+   * @param cwd - Working directory for the session
+   */
+  async loadSession(sessionId: string, cwd: string = process.cwd()): Promise<AcpResponse & { sessionId?: string }> {
+    const normalizedCwd = this.normalizeCwdForAgent(cwd);
+
+    const response = await this.sendRequest<AcpResponse & { sessionId?: string }>('session/load', {
+      sessionId,
+      cwd: normalizedCwd,
+      mcpServers: [] as unknown[],
+    });
+
+    // session/load returns modes/models/configOptions but not sessionId — keep the one we sent
+    this.sessionId = response.sessionId || sessionId;
+
+    console.log(`[ACP ${this.backend}] session/load response:`, JSON.stringify(response, null, 2));
+
+    // Parse configOptions and models (same logic as newSession)
+    const result = response as unknown as Record<string, unknown>;
+    if (Array.isArray(result.configOptions)) {
+      this.configOptions = result.configOptions as AcpSessionConfigOption[];
+    }
+    const modelsSource = result.models || (result._meta as Record<string, unknown> | undefined)?.models;
+    if (modelsSource && typeof modelsSource === 'object') {
+      this.models = modelsSource as AcpSessionModels;
+    }
+
+    if (this.backend === 'codex') {
+      const unifiedModelInfo = buildAcpModelInfo(this.configOptions, this.models);
+      const modelOption = this.configOptions?.find((opt) => opt.category === 'model');
+      mainLog('[ACP codex]', 'session/load parsed model info', {
         rawCurrentModelId: this.models?.currentModelId || null,
         rawAvailableModelCount: this.models?.availableModels?.length || 0,
         configOptionModelCount: modelOption && modelOption.type === 'select' && modelOption.options ? modelOption.options.length : 0,
