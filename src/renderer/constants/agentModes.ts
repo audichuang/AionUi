@@ -61,9 +61,9 @@ export const AGENT_MODES: Record<string, AgentModeOption[]> = {
     { value: 'yolo', label: 'YOLO' },
   ],
   codex: [
-    { value: 'default', label: 'Plan' },
-    { value: 'autoEdit', label: 'Auto Edit' },
-    { value: 'yolo', label: 'Full Auto' },
+    { value: 'read-only', label: 'Plan' },
+    { value: 'auto', label: 'Auto Edit' },
+    { value: 'full-access', label: 'Full Auto' },
   ],
 };
 
