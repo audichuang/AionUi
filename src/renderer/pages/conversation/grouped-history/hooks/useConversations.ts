@@ -6,10 +6,12 @@
 
 import { ipcBridge } from '@/common';
 import type { TChatConversation } from '@/common/storage';
+import { ConfigStorage } from '@/common/storage';
 import { addEventListener } from '@/renderer/utils/emitter';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
+import useSWR from 'swr';
 
 import type { GroupedHistoryResult } from '../types';
 import { buildGroupedHistory } from '../utils/groupingHelpers';
@@ -31,7 +33,10 @@ export const useConversations = () => {
     return [];
   });
   const { id } = useParams();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+
+  // Fetch custom agents for assistant group name resolution
+  const { data: customAgents } = useSWR('acp.customAgents', () => ConfigStorage.get('acp.customAgents'));
 
   // Track whether auto-expand has already been performed to avoid
   // re-expanding workspaces after a user manually collapses them (#1156)
@@ -82,28 +87,31 @@ export const useConversations = () => {
   }, [expandedWorkspaces]);
 
   const groupedHistory: GroupedHistoryResult = useMemo(() => {
-    return buildGroupedHistory(conversations, t);
-  }, [conversations, t]);
+    return buildGroupedHistory(conversations, t, i18n.language || 'en-US', customAgents ?? undefined);
+  }, [conversations, t, i18n.language, customAgents]);
 
   const { pinnedConversations, timelineSections } = groupedHistory;
 
-  // Auto-expand all workspaces on first load only (#1156)
+  // Auto-expand all workspaces and assistant groups on first load only (#1156)
   useEffect(() => {
     if (hasAutoExpandedRef.current) return;
     if (expandedWorkspaces.length > 0) {
       hasAutoExpandedRef.current = true;
       return;
     }
-    const allWorkspaces: string[] = [];
+    const allKeys: string[] = [];
     timelineSections.forEach((section) => {
       section.items.forEach((item) => {
         if (item.type === 'workspace' && item.workspaceGroup) {
-          allWorkspaces.push(item.workspaceGroup.workspace);
+          allKeys.push(item.workspaceGroup.workspace);
+        }
+        if (item.type === 'assistant' && item.assistantGroup) {
+          allKeys.push(`assistant:${item.assistantGroup.assistantId}`);
         }
       });
     });
-    if (allWorkspaces.length > 0) {
-      setExpandedWorkspaces(allWorkspaces);
+    if (allKeys.length > 0) {
+      setExpandedWorkspaces(allKeys);
       hasAutoExpandedRef.current = true;
     }
   }, [timelineSections]);

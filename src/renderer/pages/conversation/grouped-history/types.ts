@@ -12,10 +12,19 @@ export type WorkspaceGroup = {
   conversations: TChatConversation[];
 };
 
+export type AssistantGroup = {
+  assistantId: string;
+  displayName: string;
+  avatar: string;
+  isEmoji: boolean;
+  conversations: TChatConversation[];
+};
+
 export type TimelineItem = {
-  type: 'workspace' | 'conversation';
+  type: 'workspace' | 'assistant' | 'conversation';
   time: number;
   workspaceGroup?: WorkspaceGroup;
+  assistantGroup?: AssistantGroup;
   conversation?: TChatConversation;
 };
 
