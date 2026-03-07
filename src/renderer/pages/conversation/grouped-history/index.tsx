@@ -215,6 +215,28 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({ onSes
                 );
               }
 
+              if (item.type === 'assistant' && item.assistantGroup) {
+                const group = item.assistantGroup;
+                const key = `assistant:${group.assistantId}`;
+                return (
+                  <div key={key} className={classNames('min-w-0', { 'px-8px': !collapsed })}>
+                    <WorkspaceCollapse
+                      expanded={expandedWorkspaces.includes(key)}
+                      onToggle={() => handleToggleWorkspace(key)}
+                      siderCollapsed={collapsed}
+                      header={
+                        <div className='flex items-center gap-8px text-14px min-w-0'>
+                          {group.isEmoji ? <span className='text-16px leading-none flex-shrink-0'>{group.avatar}</span> : <img src={group.avatar} alt={group.displayName} className='w-18px h-18px rounded-50% flex-shrink-0' />}
+                          <span className='font-medium truncate flex-1 text-t-primary min-w-0'>{group.displayName}</span>
+                        </div>
+                      }
+                    >
+                      <div className={classNames('flex flex-col gap-2px min-w-0', { 'mt-4px': !collapsed })}>{group.conversations.map((conversation) => renderConversation(conversation))}</div>
+                    </WorkspaceCollapse>
+                  </div>
+                );
+              }
+
               if (item.type === 'conversation' && item.conversation) {
                 return renderConversation(item.conversation);
               }
