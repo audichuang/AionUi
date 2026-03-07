@@ -6,11 +6,89 @@
 
 import type { ICreateConversationParams } from '@/common/ipcBridge';
 import type { TChatConversation, TProviderWithModel } from '@/common/storage';
+import type { PresetAgentType } from '@/types/acpTypes';
 import { uuid } from '@/common/utils';
 import fs from 'fs/promises';
 import path from 'path';
-import { getSystemDir } from './initStorage';
+import { getSkillsDir, getSystemDir } from './initStorage';
 import { computeOpenClawIdentityHash } from './utils/openclawUtils';
+
+/**
+ * Agent 类型到原生 skills 目录的映射
+ * Mapping from agent type to native skills directories
+ *
+ * Gemini CLI:  .gemini/skills/ (native SkillManager discovery)
+ * Claude Code: .claude/skills/ (native skill discovery) + .agents/skills/
+ * Others:      .agents/skills/ (generic convention)
+ *
+ * Rules are injected via system prompt / first-message injection,
+ * NOT via context files (GEMINI.md / CLAUDE.md).
+ */
+const AGENT_SKILLS_DIRS: Record<string, string[]> = {
+  gemini: ['.gemini/skills', '.agents/skills'],
+  claude: ['.claude/skills', '.agents/skills'],
+  codebuddy: ['.claude/skills', '.agents/skills'],
+  codex: ['.agents/skills'],
+  opencode: ['.agents/skills'],
+  qwen: ['.agents/skills'],
+};
+
+const DEFAULT_SKILLS_DIRS = ['.agents/skills'];
+
+/**
+ * 为 assistant 设置原生 workspace 结构（skill symlinks）
+ * Set up native workspace structure for assistant (skill symlinks only)
+ *
+ * 将启用的 skills symlink 到 CLI 原生 skills 目录，让各 CLI 自动发现
+ * Symlink enabled skills into CLI-native skills directories for auto-discovery
+ *
+ * 只在 temp workspace（非用户指定）时执行，避免污染用户项目目录
+ * Only runs for temp workspaces (not user-specified) to avoid polluting user project dirs
+ *
+ * 注意：Rules/人格设定通过 system prompt 注入，不写 context file
+ * Note: Rules/personality are injected via system prompt, NOT written to context files
+ */
+export async function setupAssistantWorkspace(
+  workspace: string,
+  options: {
+    agentType?: PresetAgentType | string;
+    backend?: string;
+    enabledSkills?: string[];
+  }
+): Promise<void> {
+  if (!options.enabledSkills || options.enabledSkills.length === 0) return;
+
+  // Determine skills directories based on agent type or backend
+  const key = options.backend || options.agentType || '';
+  const skillsDirs = AGENT_SKILLS_DIRS[key] || DEFAULT_SKILLS_DIRS;
+  const userSkillsDir = getSkillsDir();
+
+  for (const skillsRelDir of skillsDirs) {
+    const targetSkillsDir = path.join(workspace, skillsRelDir);
+    await fs.mkdir(targetSkillsDir, { recursive: true });
+
+    for (const skillName of options.enabledSkills) {
+      // Skip builtin skills (auto-injected via SkillManager / virtual extension)
+      if (skillName === 'cron') continue;
+
+      const sourceSkillDir = path.join(userSkillsDir, skillName);
+      const targetSkillDir = path.join(targetSkillsDir, skillName);
+
+      try {
+        await fs.stat(sourceSkillDir);
+        try {
+          await fs.lstat(targetSkillDir);
+          // Already exists, skip
+        } catch {
+          await fs.symlink(sourceSkillDir, targetSkillDir, 'dir');
+          console.log(`[setupAssistantWorkspace] Symlinked skill: ${skillName} -> ${targetSkillDir}`);
+        }
+      } catch {
+        console.warn(`[setupAssistantWorkspace] Skill directory not found: ${sourceSkillDir}`);
+      }
+    }
+  }
+}
 
 /**
  * 创建工作空间目录（不复制文件）
@@ -39,6 +117,15 @@ const buildWorkspaceWidthFiles = async (defaultWorkspaceName: string, workspace?
 
 export const createGeminiAgent = async (model: TProviderWithModel, workspace?: string, defaultFiles?: string[], webSearchEngine?: 'google' | 'default', customWorkspace?: boolean, contextFileName?: string, presetRules?: string, enabledSkills?: string[], presetAssistantId?: string, sessionMode?: string, isHealthCheck?: boolean): Promise<TChatConversation> => {
   const { workspace: newWorkspace, customWorkspace: finalCustomWorkspace } = await buildWorkspaceWidthFiles(`gemini-temp-${Date.now()}`, workspace, defaultFiles, customWorkspace);
+
+  // 对 temp workspace 设置 skill symlinks（原生 SkillManager 自动发现）
+  // Set up skill symlinks for native SkillManager discovery
+  if (!finalCustomWorkspace) {
+    await setupAssistantWorkspace(newWorkspace, {
+      agentType: 'gemini',
+      enabledSkills,
+    });
+  }
 
   return {
     type: 'gemini',
@@ -73,6 +160,15 @@ export const createGeminiAgent = async (model: TProviderWithModel, workspace?: s
 export const createAcpAgent = async (options: ICreateConversationParams): Promise<TChatConversation> => {
   const { extra } = options;
   const { workspace, customWorkspace } = await buildWorkspaceWidthFiles(`${extra.backend}-temp-${Date.now()}`, extra.workspace, extra.defaultFiles, extra.customWorkspace);
+
+  // 对 temp workspace 设置 skill symlinks（原生发现）
+  if (!customWorkspace) {
+    await setupAssistantWorkspace(workspace, {
+      backend: extra.backend,
+      enabledSkills: extra.enabledSkills,
+    });
+  }
+
   return {
     type: 'acp',
     extra: {
@@ -106,6 +202,15 @@ export const createAcpAgent = async (options: ICreateConversationParams): Promis
 export const createCodexAgent = async (options: ICreateConversationParams): Promise<TChatConversation> => {
   const { extra } = options;
   const { workspace, customWorkspace } = await buildWorkspaceWidthFiles(`codex-temp-${Date.now()}`, extra.workspace, extra.defaultFiles, extra.customWorkspace);
+
+  // 对 temp workspace 设置 skill symlinks
+  if (!customWorkspace) {
+    await setupAssistantWorkspace(workspace, {
+      agentType: 'codex',
+      enabledSkills: extra.enabledSkills,
+    });
+  }
+
   return {
     type: 'codex',
     extra: {
@@ -136,6 +241,15 @@ export const createCodexAgent = async (options: ICreateConversationParams): Prom
 export const createNanobotAgent = async (options: ICreateConversationParams): Promise<TChatConversation> => {
   const { extra } = options;
   const { workspace, customWorkspace } = await buildWorkspaceWidthFiles(`nanobot-temp-${Date.now()}`, extra.workspace, extra.defaultFiles, extra.customWorkspace);
+
+  // 对 temp workspace 设置 skill symlinks
+  if (!customWorkspace) {
+    await setupAssistantWorkspace(workspace, {
+      agentType: 'nanobot',
+      enabledSkills: extra.enabledSkills,
+    });
+  }
+
   return {
     type: 'nanobot',
     extra: {
@@ -154,6 +268,14 @@ export const createNanobotAgent = async (options: ICreateConversationParams): Pr
 export const createOpenClawAgent = async (options: ICreateConversationParams): Promise<TChatConversation> => {
   const { extra } = options;
   const { workspace, customWorkspace } = await buildWorkspaceWidthFiles(`openclaw-temp-${Date.now()}`, extra.workspace, extra.defaultFiles, extra.customWorkspace);
+
+  // 对 temp workspace 设置 skill symlinks
+  if (!customWorkspace) {
+    await setupAssistantWorkspace(workspace, {
+      enabledSkills: extra.enabledSkills,
+    });
+  }
+
   const expectedIdentityHash = await computeOpenClawIdentityHash(workspace);
   return {
     type: 'openclaw-gateway',
