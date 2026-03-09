@@ -64,8 +64,7 @@ jobs:
         id: version
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          COMMIT_SHORT=$(git rev-parse --short HEAD)
-          TAG_NAME="v${VERSION}-my-${COMMIT_SHORT}"
+          TAG_NAME="v${VERSION}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
           echo "📦 Release: $TAG_NAME"
@@ -153,12 +152,11 @@ jobs:
           cd tap
 
           # --- Update Cask (macOS) ---
+          # URL 使用 #{version} 動態推算 tag，只需更新 version 和 sha256
           CASK_FILE="Casks/aionui-dev.rb"
           if [ -f "$CASK_FILE" ] && [ -n "${SHA_DMG:-}" ]; then
             sed -i '' "s/version \".*\"/version \"${VERSION}\"/" "$CASK_FILE"
             sed -i '' "s/sha256 .*/sha256 \"${SHA_DMG}\"/" "$CASK_FILE"
-            # Update download URL to use specific tag
-            sed -i '' "s|releases/.*/download|releases/download/${TAG}|" "$CASK_FILE"
             echo "✅ Updated Cask:"
             cat "$CASK_FILE"
           fi
@@ -168,7 +166,6 @@ jobs:
           if [ -f "$FORMULA_FILE" ] && [ -n "${SHA_APPIMAGE:-}" ]; then
             sed -i '' "s/version \".*\"/version \"${VERSION}\"/" "$FORMULA_FILE"
             sed -i '' "s/sha256 .*/sha256 \"${SHA_APPIMAGE}\"/" "$FORMULA_FILE"
-            sed -i '' "s|releases/.*/download|releases/download/${TAG}|" "$FORMULA_FILE"
             echo "✅ Updated Formula:"
             cat "$FORMULA_FILE"
           fi
