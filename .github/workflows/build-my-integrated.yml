@@ -22,7 +22,7 @@ env:
   BUN_INSTALL_REGISTRY: 'https://registry.npmjs.org/'
 
 jobs:
-  # 安全檢查：只在 fork 上執行，避免意外在 upstream 觸發
+  # 安全檢查：只在 fork 上執行
   check-fork:
     name: Verify Fork
     runs-on: ubuntu-latest
@@ -30,7 +30,7 @@ jobs:
       - name: Check repository
         run: |
           if [ "${{ github.repository }}" = "iOfficeAI/AionUi" ]; then
-            echo "::error::This workflow should only run on forks, not on iOfficeAI/AionUi"
+            echo "::error::This workflow should only run on forks"
             exit 1
           fi
           echo "✅ Running on fork: ${{ github.repository }}"
@@ -52,7 +52,7 @@ jobs:
 
   release:
     name: Create Dev Release
-    runs-on: ubuntu-latest
+    runs-on: macos-14
     needs: build-pipeline
     if: success()
 
@@ -94,7 +94,7 @@ jobs:
           git tag -f "$TAG"
           git push origin "$TAG" --force
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -106,15 +106,77 @@ jobs:
           prerelease: true
           make_latest: false
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Trigger Homebrew tap update
-        if: success()
-        continue-on-error: true
+      # 直接 clone homebrew-tap 並更新 (參考 skills-hub 做法)
+      - name: Calculate SHA256
+        id: sha
         run: |
-          curl -X POST \
-            -H "Accept: application/vnd.github.v3+json" \
-            -H "Authorization: token ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}" \
-            https://api.github.com/repos/${{ github.repository_owner }}/homebrew-tap/dispatches \
-            -d '{"event_type":"update-aionui-dev","client_payload":{"tag":"${{ steps.version.outputs.tag_name }}","version":"${{ steps.version.outputs.version }}"}}'
-          echo "✅ Triggered homebrew-tap update"
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.tag_name }}"
+
+          # macOS DMG
+          DMG=$(find release-assets -name "*-mac-arm64.dmg" | head -1)
+          if [ -n "$DMG" ]; then
+            SHA_DMG=$(shasum -a 256 "$DMG" | awk '{print $1}')
+            echo "dmg_sha=$SHA_DMG" >> $GITHUB_OUTPUT
+            echo "dmg_name=$(basename $DMG)" >> $GITHUB_OUTPUT
+            echo "DMG SHA256: $SHA_DMG"
+          fi
+
+          # Linux AppImage x64
+          APPIMAGE=$(find release-assets -name "*-linux-x86_64.AppImage" | head -1)
+          if [ -n "$APPIMAGE" ]; then
+            SHA_APPIMAGE=$(shasum -a 256 "$APPIMAGE" | awk '{print $1}')
+            echo "appimage_sha=$SHA_APPIMAGE" >> $GITHUB_OUTPUT
+            echo "appimage_name=$(basename $APPIMAGE)" >> $GITHUB_OUTPUT
+            echo "AppImage SHA256: $SHA_APPIMAGE"
+          fi
+
+      - name: Update Homebrew tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${TAP_TOKEN:-}" ]; then
+            echo "⚠️ HOMEBREW_TAP_TOKEN not configured, skipping tap update"
+            exit 0
+          fi
+
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.tag_name }}"
+          SHA_DMG="${{ steps.sha.outputs.dmg_sha }}"
+          SHA_APPIMAGE="${{ steps.sha.outputs.appimage_sha }}"
+
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/${{ github.repository_owner }}/homebrew-tap.git" tap
+          cd tap
+
+          # --- Update Cask (macOS) ---
+          CASK_FILE="Casks/aionui-dev.rb"
+          if [ -f "$CASK_FILE" ] && [ -n "${SHA_DMG:-}" ]; then
+            sed -i '' "s/version \".*\"/version \"${VERSION}\"/" "$CASK_FILE"
+            sed -i '' "s/sha256 .*/sha256 \"${SHA_DMG}\"/" "$CASK_FILE"
+            # Update download URL to use specific tag
+            sed -i '' "s|releases/.*/download|releases/download/${TAG}|" "$CASK_FILE"
+            echo "✅ Updated Cask:"
+            cat "$CASK_FILE"
+          fi
+
+          # --- Update Formula (Linux) ---
+          FORMULA_FILE="Formula/aionui-dev.rb"
+          if [ -f "$FORMULA_FILE" ] && [ -n "${SHA_APPIMAGE:-}" ]; then
+            sed -i '' "s/version \".*\"/version \"${VERSION}\"/" "$FORMULA_FILE"
+            sed -i '' "s/sha256 .*/sha256 \"${SHA_APPIMAGE}\"/" "$FORMULA_FILE"
+            sed -i '' "s|releases/.*/download|releases/download/${TAG}|" "$FORMULA_FILE"
+            echo "✅ Updated Formula:"
+            cat "$FORMULA_FILE"
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "chore: bump aionui-dev to ${TAG}"
+          git push
+          echo "✅ homebrew-tap updated!"
