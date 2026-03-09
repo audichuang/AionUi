@@ -1,0 +1,120 @@
+name: '🚀 Build My Integrated'
+
+# 只在你的 fork 上觸發，不會影響 upstream
+# 推送 my-integrated 分支 或手動觸發
+
+permissions:
+  contents: write
+  actions: write
+
+on:
+  push:
+    branches: [ my-integrated ]
+  workflow_dispatch:
+    inputs:
+      skip_code_quality:
+        description: 'Skip code quality checks'
+        required: false
+        type: boolean
+        default: true
+
+env:
+  BUN_INSTALL_REGISTRY: 'https://registry.npmjs.org/'
+
+jobs:
+  # 安全檢查：只在 fork 上執行，避免意外在 upstream 觸發
+  check-fork:
+    name: Verify Fork
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check repository
+        run: |
+          if [ "${{ github.repository }}" = "iOfficeAI/AionUi" ]; then
+            echo "::error::This workflow should only run on forks, not on iOfficeAI/AionUi"
+            exit 1
+          fi
+          echo "✅ Running on fork: ${{ github.repository }}"
+
+  build-pipeline:
+    name: Build Pipeline
+    needs: check-fork
+    uses: ./.github/workflows/_build-reusable.yml
+    with:
+      # 只打包 Mac ARM64 和 Linux
+      matrix: >-
+        {"include":[
+          {"platform":"macos-arm64","os":"macos-14","command":"node scripts/build-with-builder.js arm64 --mac --arm64","artifact-name":"macos-build-arm64","arch":"arm64"},
+          {"platform":"linux","os":"ubuntu-latest","command":"bun run dist:linux","artifact-name":"linux-build","arch":"x64-arm64"}
+        ]}
+      skip_code_quality: ${{ inputs.skip_code_quality || true }}
+      append_commit_hash: true
+    secrets: inherit
+
+  release:
+    name: Create Dev Release
+    runs-on: ubuntu-latest
+    needs: build-pipeline
+    if: success()
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Get version info
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          COMMIT_SHORT=$(git rev-parse --short HEAD)
+          TAG_NAME="v${VERSION}-my-${COMMIT_SHORT}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "📦 Release: $TAG_NAME"
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: build-artifacts
+
+      - name: Prepare release assets
+        shell: bash
+        run: |
+          mkdir -p release-assets
+          find build-artifacts -type f \( \
+            -name "*.dmg" -o -name "*.deb" -o -name "*.AppImage" \
+            -o -name "*.zip" -o -name "*.yml" -o -name "*.blockmap" \
+          \) -exec cp {} release-assets/ \;
+          echo "📦 Release assets:"
+          ls -lh release-assets/
+
+      - name: Create or update tag
+        run: |
+          TAG="${{ steps.version.outputs.tag_name }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f "$TAG"
+          git push origin "$TAG" --force
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag_name }}
+          name: "My Build ${{ steps.version.outputs.tag_name }}"
+          files: release-assets/*
+          generate_release_notes: true
+          prerelease: true
+          make_latest: false
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Trigger Homebrew tap update
+        if: success()
+        continue-on-error: true
+        run: |
+          curl -X POST \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository_owner }}/homebrew-tap/dispatches \
+            -d '{"event_type":"update-aionui-dev","client_payload":{"tag":"${{ steps.version.outputs.tag_name }}","version":"${{ steps.version.outputs.version }}"}}'
+          echo "✅ Triggered homebrew-tap update"
