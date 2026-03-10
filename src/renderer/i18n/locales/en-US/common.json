@@ -56,5 +56,11 @@
   "more": "More",
   "refresh": "Refresh",
   "tray.showWindow": "Show AionUi",
-  "tray.quit": "Quit"
+  "tray.quit": "Quit",
+  "fileAttach.hostFiles": "Host Machine Files",
+  "fileAttach.myDevice": "My Device",
+  "fileAttach.tooLarge": "File exceeds {{max}}MB limit",
+  "fileAttach.failed": "Upload failed",
+  "fileAttach.uploading": "Uploading...",
+  "fileAttach.uploadSuccess": "Upload successful"
 }

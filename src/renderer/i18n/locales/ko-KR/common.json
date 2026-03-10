@@ -56,5 +56,11 @@
   "more": "더보기",
   "refresh": "새로고침",
   "tray.showWindow": "AionUi 표시",
-  "tray.quit": "종료"
+  "tray.quit": "종료",
+  "fileAttach.hostFiles": "호스트 머신 파일",
+  "fileAttach.myDevice": "내 기기",
+  "fileAttach.tooLarge": "파일이 {{max}}MB 제한을 초과합니다",
+  "fileAttach.failed": "업로드 실패",
+  "fileAttach.uploading": "업로드 중...",
+  "fileAttach.uploadSuccess": "업로드 성공"
 }

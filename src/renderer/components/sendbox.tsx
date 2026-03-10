@@ -8,6 +8,7 @@ import { useInputFocusRing } from '@/renderer/hooks/useInputFocusRing';
 import SlashCommandMenu, { type SlashCommandMenuItem } from '@/renderer/components/SlashCommandMenu';
 import { useSlashCommandController } from '@/renderer/hooks/useSlashCommandController';
 import { useLayoutContext } from '@/renderer/context/LayoutContext';
+import { useConversationContextSafe } from '@/renderer/context/ConversationContext';
 import { usePreviewContext } from '@/renderer/pages/conversation/preview';
 import { blurActiveElement, shouldBlockMobileInputFocus } from '@/renderer/utils/focus';
 import { Button, Input, Message, Tag } from '@arco-design/web-react';
@@ -48,6 +49,7 @@ const SendBox: React.FC<{
 }> = ({ onSend, onStop, prefix, className, loading, tools, disabled, placeholder, value: input = '', onChange: setInput = constVoid, onFilesAdded, supportedExts = allSupportedExts, defaultMultiLine = false, lockMultiLine = false, sendButtonPrefix, slashCommands = [], onSlashBuiltinCommand }) => {
   const layout = useLayoutContext();
   const isMobile = layout?.isMobile ?? false;
+  const conversationContext = useConversationContextSafe();
   const { t } = useTranslation();
   const [isLoading, setIsLoading] = useState(false);
   const [isSingleLine, setIsSingleLine] = useState(!defaultMultiLine);
@@ -177,6 +179,7 @@ const SendBox: React.FC<{
   const { isFileDragging, dragHandlers } = useDragUpload({
     supportedExts,
     onFilesAdded,
+    conversationId: conversationContext?.conversationId,
   });
 
   const [message, context] = Message.useMessage();
@@ -238,6 +241,7 @@ const SendBox: React.FC<{
   const { onPaste, onFocus: handlePasteFocus } = usePasteService({
     supportedExts,
     onFilesAdded,
+    conversationId: conversationContext?.conversationId,
     onTextPaste: (text: string) => {
       // 处理清理后的文本粘贴，在当前光标位置插入文本而不是替换整个内容
       const textarea = document.activeElement as HTMLTextAreaElement;
