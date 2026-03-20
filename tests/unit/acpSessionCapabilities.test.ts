@@ -134,7 +134,7 @@ describe('AcpConnection.parseSessionCapabilities (via loadSession)', () => {
 
 // ─── AcpAgent.createOrResumeSession routing ──────────────────────────────────
 
-describe('AcpAgent.createOrResumeSession — Codex routing', () => {
+describe('AcpAgent.createOrResumeSession — session/load routing', () => {
   it('routes Codex to loadSession instead of newSession', async () => {
     const agent = makeAgent('codex', 'session-codex-1');
     const conn: AcpConnection = (agent as any).connection;
@@ -148,7 +148,20 @@ describe('AcpAgent.createOrResumeSession — Codex routing', () => {
     expect(newSession).not.toHaveBeenCalled();
   });
 
-  it('routes non-Codex backends to newSession', async () => {
+  it('routes OpenCode to loadSession instead of newSession', async () => {
+    const agent = makeAgent('opencode', 'session-opencode-1');
+    const conn: AcpConnection = (agent as any).connection;
+
+    const loadSession = vi.spyOn(conn, 'loadSession').mockResolvedValue({ sessionId: 'session-opencode-1' } as any);
+    const newSession = vi.spyOn(conn, 'newSession').mockResolvedValue({ sessionId: 'fresh' } as any);
+
+    await (agent as any).createOrResumeSession();
+
+    expect(loadSession).toHaveBeenCalledWith('session-opencode-1', expect.any(String));
+    expect(newSession).not.toHaveBeenCalled();
+  });
+
+  it('routes non-Codex/non-OpenCode backends to newSession', async () => {
     const agent = makeAgent('claude', 'session-claude-1');
     const conn: AcpConnection = (agent as any).connection;
 
@@ -166,6 +179,18 @@ describe('AcpAgent.createOrResumeSession — Codex routing', () => {
     const conn: AcpConnection = (agent as any).connection;
 
     vi.spyOn(conn, 'loadSession').mockRejectedValue(new Error('rollout expired'));
+    const newSession = vi.spyOn(conn, 'newSession').mockResolvedValue({ sessionId: 'fresh-session' } as any);
+
+    await (agent as any).createOrResumeSession();
+
+    expect(newSession).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ mcpServers: [] }));
+  });
+
+  it('falls back to newSession when OpenCode loadSession throws', async () => {
+    const agent = makeAgent('opencode', 'session-expired');
+    const conn: AcpConnection = (agent as any).connection;
+
+    vi.spyOn(conn, 'loadSession').mockRejectedValue(new Error('session not found'));
     const newSession = vi.spyOn(conn, 'newSession').mockResolvedValue({ sessionId: 'fresh-session' } as any);
 
     await (agent as any).createOrResumeSession();
